@@ -84,7 +84,7 @@ The ISP-AD analysis and the review zone study use Pratyush's cut-off and evaluat
 
 ---
 
-## Agree on these in week 1
+## Agree on these first (Phase 0)
 
 1. **Score file format.** This is the handoff between the two halves. Each record should hold: image id, split, label, image score, heatmap path, memory setting, seed.
 2. **API shape.** What `/inspect` returns, so the frontend and backend can be built independently.
