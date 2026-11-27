@@ -1,0 +1,22 @@
+# datasets and pipeline outputs (large, regenerable)
+data/*
+!data/.gitkeep
+artifacts/*
+!artifacts/.gitkeep
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# frontend
+node_modules/
+frontend/dist/
+
+# env / os
+.env
+.DS_Store
