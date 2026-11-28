@@ -37,6 +37,9 @@ dev = [
     "ruff>=0.17,<0.18",  # minor pinned: format output changes between minors
 ]
 
+[project.scripts]
+argus = "argus.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

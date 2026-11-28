@@ -18,8 +18,8 @@ categories:
       test_good: 382
       point_defects: 33
       area_defects: 63
-    # Drawn from the modality's normal images per seed. `test` holds all real defects (C1).
-    # LSM_2 has only 401 train goods, so 650 normals need train/good + test/good (see protocol).
+    # Drawn per seed from train/good + test/good pooled (C1; LSM_2 has only 401 train goods).
+    # `test` holds every defect and no goods. Pooled goods not drawn in a seed are unused.
     split:
       support: 300
       calib: 150

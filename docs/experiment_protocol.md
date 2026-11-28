@@ -14,9 +14,9 @@ Configs: `configs/datasets/mvtec_ad.yaml` and `configs/datasets/isp_ad.yaml`. Ro
 | ISP-AD | LSM-1 | 3,678 | 300 | 150 | 200 | 1,470 ᵃ | 200 | 95 (46 point) |
 | ISP-AD | ASM | 500 | 300 | 150 | 200 | 1,916 ᵃ | 200 | 74 (41 point) |
 
-"FPR normals" counts every good image FPR is measured on: `eval_normal` plus the original test goods (C1).
+"FPR normals" counts every good image FPR is measured on (C1): on MVTec AD, `eval_normal` plus the original test goods; on ISP-AD, `eval_normal` only.
 
-ᵃ ISP-AD counts are from the A1.1 download. LSM-2 and ASM have fewer than 650 train goods, so their split must also draw on the test goods; see "Downloaded counts (A1.1)" below. Until C1 is amended, the ISP-AD "FPR normals" column assumes the test goods are pooled, not added on top.
+ᵃ ISP-AD counts are from the A1.1 download. C1 pools each modality's train and test goods before drawing the 650 split images, because LSM-2 and ASM have fewer than 650 train goods. Test goods are therefore not added to FPR normals, and pooled goods not drawn in a seed are unused. See "Downloaded counts (A1.1)" below.
 
 **Why these MVTec AD categories.**
 - **Hazelnut** has many training images (391), which leaves room to hold some out for calibration. But PatchCore already reaches 100% image AUROC on it, so memory size may change nothing visible.
@@ -59,7 +59,7 @@ Every defect image has a mask with the same filename under `ground_truth/{points
 - **Folder names:** the archive's own names (`LSM_1`, `LSM_2`, `ASM`) are kept, and the config keys match them, because C1 ties `{category}` to the folder name and ISP-AD's own loaders expect these names. Prose keeps "LSM-1".
 - **Not extracted:** `LSM_1/train/good_reduced/` (500 files, each a byte-identical copy of a `train/good` image, checked by CRC32; keeping both would let the same image land in two roles) and the archive's `configs/` folder (other methods' settings). `license.txt` and `changelog.txt` are kept in `data/isp_ad/`.
 - **Deng's Table 1:** the "point / all" column (LSM-2 33/63, LSM-1 46/49, ASM 41/33) is really points / area: every "all" value equals the `area` folder count. The real defect totals are 96, 95 and 74. Deng's recall denominators in Table 2 (99 = 33×3, 138 = 46×3, 123 = 41×3) confirm the point counts. This also explains the apparent ASM inconsistency noted in 0.4.
-- **Normal pool (needs a C1 decision):** Deng's split needs 650 normals per modality, but `train/good` has only 401 for LSM-2 and 500 for ASM. The split can only be met by drawing support, calibration and evaluation normals from `train/good` ∪ `test/good`, with `test` then holding defects only. C1 currently says test goods go in `test`, so this needs a small C1 amendment, approved by both of us, before A1.2 (#11) generates manifests. A1.1 only lays out and counts the data; it does not assign roles.
+- **Normal pool (C1):** Deng's split needs 650 normals per modality, but `train/good` has only 401 for LSM-2 and 500 for ASM. C1 therefore pools `train/good` and `test/good`, draws support, calibration and evaluation normals from that pool per seed, and keeps only defects in `test`. Pooled normals not drawn in a seed (133, 4,498 and 1,766) are unused, so FPR uses exactly 200 normals per modality, as in Deng. Using them as extra FPR normals was considered and rejected: it would break the comparison with Deng and make the modalities' precision uneven.
 
 ### MVTec AD
 
@@ -74,3 +74,31 @@ Verified on the full archive `mvtec_anomaly_detection.tar.xz` (5,264,982,680 B, 
 
 - The archive has no wrapper folder: the categories, `license.txt` and `readme.txt` sit at the top level, and each category folder also carries its own `license.txt` and `readme.txt`, which are kept.
 - The archive stores folders and files as owner read-only (`r-x`, `r--`). The script makes the extracted tree owner-writable, otherwise it could not be moved into place or cleaned up.
+
+## Split manifests (A1.2)
+
+`make splits` writes the contract C1 manifests to `artifacts/splits/{dataset}/{category}/seed{n}.csv`, and `make check-splits` validates them. `artifacts/` is not committed, so each machine regenerates them. A machine has the same splits as everyone else when its files match the hashes below; `argus splits` prints the first 12 characters of each hash.
+
+**Algorithm** (`argus.data.splits`). The category must first pass the A1.1 count check. Its normal pool (MVTec AD: `train/good`; ISP-AD: `train/good` plus `test/good`, per C1) is sorted by `image_id`, and `numpy.random.default_rng(seed).permutation` orders it. The first `support`, the next `calib` and the next `eval_normal` entries take those roles. The rest of the pool is unused, and every test image goes in `test`.
+
+Generated with numpy 2.5.5 (Python 3.14). numpy guarantees the bit stream of `default_rng`'s generator but not that `Generator` methods such as `permutation` give the same output in every version (NEP 19). If the hashes differ on another machine, compare numpy versions first. `tests/test_splits.py` pins a golden manifest hash so CI catches such a change.
+
+| Dataset | Category | Seed | Support | Calib | Eval normal | Test | SHA-256 |
+|---|---|---|---|---|---|---|---|
+| mvtec_ad | hazelnut | 20260801 | 200 | 100 | 91 | 110 | `b019c4449de52f2dccac24b9e7802ac341bcb2f3ef3b6ee1582640c6365606bc` |
+| mvtec_ad | hazelnut | 20260802 | 200 | 100 | 91 | 110 | `fbabf50ba3e300c35049a10133a38804e364455326f3775c0c1d171fc8e3bf69` |
+| mvtec_ad | hazelnut | 20260803 | 200 | 100 | 91 | 110 | `641c0bdf9d9677ac78564af75e19d4c7e738118c2612e5fdffc8814f7486349f` |
+| mvtec_ad | screw | 20260801 | 160 | 100 | 60 | 160 | `bdd7d9ebc689caae5a244f7744db7ead60b7e67c9154af90e0495d00626a4194` |
+| mvtec_ad | screw | 20260802 | 160 | 100 | 60 | 160 | `8646cc7aa2eba7953d9ce91bcbaeea7228e7207acfcdf38581c0c24c2a48b81a` |
+| mvtec_ad | screw | 20260803 | 160 | 100 | 60 | 160 | `93c41f0b2330020a462106fe9d5f138de2e50770f23a50a3d8bd4fd0071ebc9a` |
+| isp_ad | LSM_2 | 20260801 | 300 | 150 | 200 | 96 | `4778ae89fdeb5d43e88b77c4208dfe7a30a8b94aa7782f214c71a9f490a92640` |
+| isp_ad | LSM_2 | 20260802 | 300 | 150 | 200 | 96 | `4637f94f3e1c087ee15aca85573cc6df372b8e0f91a154f42ea83cd19ae2b15a` |
+| isp_ad | LSM_2 | 20260803 | 300 | 150 | 200 | 96 | `8ba817c55f25a325ceff44b0fb5a807b1e5fdacdef7cc94e8e1d711a2b97b976` |
+| isp_ad | LSM_1 | 20260801 | 300 | 150 | 200 | 95 | `dac6b65fecc43b0e9d93a267da62c00822650c6a75449afe1d008d103cd86f89` |
+| isp_ad | LSM_1 | 20260802 | 300 | 150 | 200 | 95 | `c34e5d6804e8d7d087aa759a0a1851c5972f34daaaceb2221b8eb733e8ebfe95` |
+| isp_ad | LSM_1 | 20260803 | 300 | 150 | 200 | 95 | `78f7bb41438571cf9c947d09fedb4c4337aa20787d78c7061ef975c726d766da` |
+| isp_ad | ASM | 20260801 | 300 | 150 | 200 | 74 | `de08678eef4a16f0a134619c08ca85e072ac1c7beeae960576cc7510fe900a5a` |
+| isp_ad | ASM | 20260802 | 300 | 150 | 200 | 74 | `45a25a00d9db09735b42814efbb758ac9f4046ba5c7e9c35a2f38b0ea0bdccae` |
+| isp_ad | ASM | 20260803 | 300 | 150 | 200 | 74 | `090740b7878d7321938157b391c06c227f9fb446c3d3fc600ae638a9154f5eb0` |
+
+`test` is identical across seeds: MVTec AD's whole original test set (hazelnut 40 good + 70 defect, screw 41 + 119), and ISP-AD's defects only (points + area). Because ISP-AD draws from the pooled goods, a large share of its 650 split images come from `test/good`: about 80% for ASM, 50% for LSM-2 and 30% for LSM-1, in proportion to the pool. Every role is drawn from the same pool, so calibration and evaluation normals stay exchangeable, which is what the Wilks threshold needs.

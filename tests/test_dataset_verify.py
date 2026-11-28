@@ -1,60 +1,12 @@
 """argus.data.verify and argus.data.archive on tiny fake dataset trees (no network)."""
 
 import json
-from pathlib import Path
 
 import pytest
 import yaml
 
 from argus.data import archive, verify
-
-
-def touch(path: Path, data: bytes = b"\x89PNG fake"):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data + path.name.encode())
-
-
-def make_mvtec(root: Path, cat: str, train=3, good=2, defects=None, masks=True):
-    base = root / "mvtec_ad" / cat
-    for i in range(train):
-        touch(base / "train" / "good" / f"{i:03d}.png")
-    for i in range(good):
-        touch(base / "test" / "good" / f"{i:03d}.png")
-    for dtype, n in (defects or {"crack": 2, "hole": 1}).items():
-        for i in range(n):
-            touch(base / "test" / dtype / f"{i:03d}.png")
-            if masks:
-                touch(base / "ground_truth" / dtype / f"{i:03d}_mask.png")
-    return base
-
-
-def make_isp(root: Path, mod: str, train=4, good=3, points=2, area=1, suffix="lsm1"):
-    base = root / "isp_ad" / mod
-    for i in range(train):
-        touch(base / "train" / "good" / f"{i}_good_{suffix}.png")
-    for i in range(good):
-        touch(base / "test" / "good" / f"{100 + i}_good_{suffix}.png")
-    for folder, n in (("points", points), ("area", area)):
-        for i in range(n):
-            name = f"{200 + i}_{folder}_{suffix}.png"
-            touch(base / "test" / folder / name)
-            touch(base / "ground_truth" / folder / name)
-    return base
-
-
-def write_config(path: Path, dataset: str, cats: dict) -> Path:
-    cfg = {
-        "dataset": dataset,
-        "root": dataset,
-        "preprocess": "patchcore",
-        "categories": {
-            k: {"expected_counts": v, "split": {"support": 1, "calib": 1, "eval_normal": 1}}
-            for k, v in cats.items()
-        },
-    }
-    path.write_text(yaml.safe_dump(cfg, sort_keys=False))
-    return path
-
+from tests.conftest import make_isp, make_mvtec, touch, write_config
 
 MVTEC_OK = {"train_good": 3, "test_good": 2, "test_defect": 3}
 ISP_OK = {"train_good": 4, "test_good": 3, "point_defects": 2, "area_defects": 1}
