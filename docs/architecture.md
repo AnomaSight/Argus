@@ -219,3 +219,119 @@ The schema checker (P2.3) enforces these, and `report.py` refuses a folder that 
 5. Every `score` is finite.
 6. Every `heatmap_path` exists, is float16 and has shape `input_size`.
 7. `run.json` has every key listed, with `schema_version = 1`, and its `dataset`, `category`, `setting` and `seed` match the folder path.
+
+### C3. Detector interface
+
+**Provided by:** `argus.load_detector` and the `Detector` class (A2.5, Arvind).
+**Used by:** the backend (P1.6 with a stub, P3.2 with real banks) and the stress tests (P3.4, Pratyush).
+
+C3 is the only thing code outside the detector needs to score images. Callers never build memory banks, never preprocess images and never read bank files directly.
+
+#### Interface
+
+```python
+from pathlib import Path
+from typing import Protocol
+
+import numpy as np
+from PIL import Image
+
+
+def load_detector(path: str | Path, device: str = "auto") -> "Detector":
+    """Load a saved memory bank and its preprocessing config."""
+
+
+class Detector(Protocol):
+    @property
+    def info(self) -> dict: ...
+
+    def score(self, image: Image.Image) -> tuple[float, np.ndarray]: ...
+
+    def score_batch(
+        self, images: list[Image.Image], batch_size: int = 16
+    ) -> tuple[np.ndarray, np.ndarray]: ...
+
+    def input_view(self, image: Image.Image) -> Image.Image: ...
+```
+
+`load_detector` and `Detector` are importable from `argus` itself. P1.6's `StubDetector` implements the same four members with the same types, so the backend works unchanged when it switches to `load_detector()`.
+
+#### `load_detector(path, device="auto")`
+
+- `path`: a bank folder (see below).
+- `device`: `"cuda"`, `"cuda:N"`, `"mps"`, `"cpu"` or `"auto"`. `"auto"` uses `ARGUS_DEVICE` if it is set, otherwise the first available of CUDA, MPS and CPU.
+- Raises `FileNotFoundError` if the folder or its `bank.json` is missing, and `ValueError` if `bank.json` has an unsupported `schema_version`.
+- The backbone is loaded once per process and shared, so loading several banks costs one backbone plus their memory banks.
+
+#### `Detector.score(image)`
+
+- `image`: any PIL image, as loaded from disk or an upload. The detector converts it to RGB (MVTec AD includes greyscale categories) and applies the bank's preprocessing (resize, crop, ImageNet normalisation). Callers pass raw images.
+- Returns `(score, heatmap)`:
+  - `score`: a Python `float`. It means the same as in C2: the largest patch score, higher is more anomalous, flagged when `score > tau`.
+  - `heatmap`: a float32 array of shape `info["input_size"]`, with the same meaning as C2's heatmaps. It is in the model's input frame, smoothed, and its maximum is usually below `score`.
+
+#### `Detector.score_batch(images, batch_size=16)`
+
+- Scores a list of images in chunks of `batch_size`, to bound GPU memory.
+- Returns `scores` with shape `(N,)` and dtype float32, and `heatmaps` with shape `(N, H, W)` and dtype float32, in the same order as `images`.
+- An empty list returns arrays of shape `(0,)` and `(0, H, W)`.
+- `batch_size` changes speed only, never results.
+
+#### `Detector.input_view(image)`
+
+- Returns the image as the model sees it: RGB, resized and cropped like the model input, but not normalised. Its size matches the heatmap.
+- The backend draws heatmap overlays on this image, not on the raw upload. With the `patchcore` preset the centre crop removes the borders, so an overlay on the raw image would be misaligned.
+
+#### `Detector.info`
+
+A dict with exactly these keys, read from `bank.json`:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `dataset`, `category`, `setting` | string | As in C2. |
+| `seed` | int | As in C2. |
+| `config_hash` | string | Same as the matching C2 `run.json`, so a bank can be matched with its scores and threshold. |
+| `preprocess` | string | Preprocessing preset, as in C2. |
+| `input_size` | [int, int] | Model input height and width; also the heatmap shape. |
+| `coreset_size` | int | Patches in the memory bank. |
+| `bank_mb` | float | Memory bank size in MiB, as in C2. |
+| `device` | string | Device the detector runs on, in C2's format (for example `cuda:Tesla T4`). Added at load time. |
+
+#### Bank folders
+
+```
+artifacts/banks/{dataset}/{category}/{setting}/seed{n}/
+├── bank.json
+└── ...            (bank data: internal to A2.3)
+```
+
+- Names follow C1 and C2, so a bank, its scores and its split share the same path below `banks/`, `scores/` and `splits/`.
+- `bank.json` holds `schema_version` (`1`) and every key of `info` except `device`. It is the only file other code may read, for example so P3.2's model registry can list banks without loading them.
+- Everything else in the folder (features, coreset order, file layout) belongs to A2.3 and may change without changing C3.
+
+#### Rules
+
+1. **Same scores as the pipeline.** For an image in a C2 run, `score_batch` on the matching bank and device returns that run's `score` within `rtol=1e-4, atol=1e-5`, and a heatmap that matches the stored float16 one within float16 precision. A2.6 scores through the same code path so this holds. Stress tests depend on it: their τ comes from the clean C2 scores.
+2. **Same image, same result.** Repeated calls on one detector give the same output within the same tolerance, whatever `batch_size`.
+3. **One call at a time.** A `Detector` is not thread-safe. Callers must not run two calls on the same detector at once; the backend serialises calls per detector, for example with a lock.
+4. **No side effects.** Scoring never writes files and never changes the bank.
+
+#### Example
+
+```python
+from PIL import Image
+
+import argus
+
+det = argus.load_detector("artifacts/banks/mvtec_ad/hazelnut/m10/seed20260801")
+print(det.info["setting"], det.info["coreset_size"], det.info["input_size"])
+# m10 15680 [224, 224]
+
+img = Image.open("data/mvtec_ad/hazelnut/test/crack/004.png")
+score, heatmap = det.score(img)          # float, (224, 224) float32
+flagged = score > tau                    # tau from fit_threshold (C4)
+overlay_base = det.input_view(img)       # 224 x 224 RGB, aligned with heatmap
+
+images = [Image.open(p) for p in paths]
+scores, heatmaps = det.score_batch(images, batch_size=32)  # (N,), (N, 224, 224)
+```
