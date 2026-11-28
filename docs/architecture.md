@@ -46,12 +46,16 @@ All paths are relative, so the same manifest works on both laptops and on Colab.
 | `support` | Builds the memory bank. Never scored. | Good images only. |
 | `calib` | Sets the cut-off τ with `fit_threshold` (C4). | Good images only. |
 | `eval_normal` | Extra good images for measuring FPR at τ. | Good images only. |
-| `test` | The dataset's own test set. | Good and defect images. |
+| `test` | Images scored for recall and AUROC (see below). | MVTec AD: good and defect images. ISP-AD: defect images only. |
 
 Where each role comes from:
 
 - **MVTec AD:** `support`, `calib` and `eval_normal` are drawn from `train/good` using the seed and the counts in `configs/datasets/mvtec_ad.yaml` (0.4). `test` is the whole original `test/` folder (good and defect) and is the same in every seed.
-- **ISP-AD:** `support` (300), `calib` (150) and `eval_normal` (200) are drawn from the modality's good images using the seed, following Deng's split. `test` holds all real defect images of that modality, and is the same in every seed. If the downloaded release turns out to ship its own good test images, they go in `test` as well; A1.1 confirms this.
+- **ISP-AD:** each modality's good images are pooled from `train/good` and `test/good`. Pooling is needed because LSM-2 has only 401 and ASM only 500 train goods, fewer than the 650 the split needs (A1.1 counts). `support` (300), `calib` (150) and `eval_normal` (200) are drawn from that pool using the seed, following Deng's split.
+  - `test` holds every defect image of the modality (`test/points` and `test/area`, so `defect_type` is `points` or `area`) and no good images. It is the same in every seed.
+  - Pooled good images not drawn in a seed (133 for LSM-2, 4,498 for LSM-1 and 1,766 for ASM) are left out of that seed's manifest and not used (rule 8). FPR is therefore measured on exactly 200 normals per modality, as in Deng.
+  - The same filename can appear in both `train/good` and `test/good` (for example `100_good_lsm2.png`). They are different images, and `image_id` keeps the folder, so ids stay unique. Never key anything on the bare filename.
+  - `train/good_reduced` (LSM-1) duplicates `train/good` and is never used; A1.1 does not extract it.
 
 #### How each role is used
 
@@ -63,7 +67,7 @@ Where each role comes from:
 | Recall at τ | every `label = 1` row in `test` |
 | Image AUROC, pixel AUROC, PRO | `test` rows only (comparable with the PatchCore and ASO papers). If `test` has no good images (ISP-AD), `eval_normal` rows are added as the normals. |
 
-Test-set good images stay in `test` instead of being moved to `eval_normal`. That keeps AUROC computed on exactly the papers' test set, and FPR still uses every held-out good image.
+On MVTec AD, test-set good images stay in `test` instead of being moved to `eval_normal`. That keeps AUROC computed on exactly the papers' test set, and FPR still uses every held-out good image. ISP-AD follows Deng's design instead: all normals come from one pool, and FPR and AUROC use the 200 held-out `eval_normal` images.
 
 #### Rules
 
@@ -91,6 +95,17 @@ mvtec_ad/hazelnut/train/good/203,mvtec_ad/hazelnut/train/good/203.png,calib,0,go
 mvtec_ad/hazelnut/train/good/088,mvtec_ad/hazelnut/train/good/088.png,eval_normal,0,good,
 mvtec_ad/hazelnut/test/crack/004,mvtec_ad/hazelnut/test/crack/004.png,test,1,crack,mvtec_ad/hazelnut/ground_truth/crack/004_mask.png
 mvtec_ad/hazelnut/test/good/012,mvtec_ad/hazelnut/test/good/012.png,test,0,good,
+```
+
+`artifacts/splits/isp_ad/LSM_2/seed20260801.csv`: any role's good images may come from `train/good` or `test/good`, and `test` has defects only. The rows below only illustrate the format; which image lands where depends on the seed.
+
+```csv
+image_id,path,role,label,defect_type,mask_path
+isp_ad/LSM_2/test/good/100_good_lsm2,isp_ad/LSM_2/test/good/100_good_lsm2.png,support,0,good,
+isp_ad/LSM_2/train/good/100_good_lsm2,isp_ad/LSM_2/train/good/100_good_lsm2.png,calib,0,good,
+isp_ad/LSM_2/train/good/101_good_lsm2,isp_ad/LSM_2/train/good/101_good_lsm2.png,eval_normal,0,good,
+isp_ad/LSM_2/test/area/10_area_lsm2,isp_ad/LSM_2/test/area/10_area_lsm2.png,test,1,area,isp_ad/LSM_2/ground_truth/area/10_area_lsm2.png
+isp_ad/LSM_2/test/points/10_points_lsm2,isp_ad/LSM_2/test/points/10_points_lsm2.png,test,1,points,isp_ad/LSM_2/ground_truth/points/10_points_lsm2.png
 ```
 
 ### C2. Score files

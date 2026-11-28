@@ -14,9 +14,9 @@ Configs: `configs/datasets/mvtec_ad.yaml` and `configs/datasets/isp_ad.yaml`. Ro
 | ISP-AD | LSM-1 | 3,678 | 300 | 150 | 200 | 1,470 ᵃ | 200 | 95 (46 point) |
 | ISP-AD | ASM | 500 | 300 | 150 | 200 | 1,916 ᵃ | 200 | 74 (41 point) |
 
-"FPR normals" counts every good image FPR is measured on: `eval_normal` plus the original test goods (C1).
+"FPR normals" counts every good image FPR is measured on (C1): on MVTec AD, `eval_normal` plus the original test goods; on ISP-AD, `eval_normal` only.
 
-ᵃ ISP-AD counts are from the A1.1 download. LSM-2 and ASM have fewer than 650 train goods, so their split must also draw on the test goods; see "Downloaded counts (A1.1)" below. Until C1 is amended, the ISP-AD "FPR normals" column assumes the test goods are pooled, not added on top.
+ᵃ ISP-AD counts are from the A1.1 download. C1 pools each modality's train and test goods before drawing the 650 split images, because LSM-2 and ASM have fewer than 650 train goods. Test goods are therefore not added to FPR normals, and pooled goods not drawn in a seed are unused. See "Downloaded counts (A1.1)" below.
 
 **Why these MVTec AD categories.**
 - **Hazelnut** has many training images (391), which leaves room to hold some out for calibration. But PatchCore already reaches 100% image AUROC on it, so memory size may change nothing visible.
@@ -59,7 +59,7 @@ Every defect image has a mask with the same filename under `ground_truth/{points
 - **Folder names:** the archive's own names (`LSM_1`, `LSM_2`, `ASM`) are kept, and the config keys match them, because C1 ties `{category}` to the folder name and ISP-AD's own loaders expect these names. Prose keeps "LSM-1".
 - **Not extracted:** `LSM_1/train/good_reduced/` (500 files, each a byte-identical copy of a `train/good` image, checked by CRC32; keeping both would let the same image land in two roles) and the archive's `configs/` folder (other methods' settings). `license.txt` and `changelog.txt` are kept in `data/isp_ad/`.
 - **Deng's Table 1:** the "point / all" column (LSM-2 33/63, LSM-1 46/49, ASM 41/33) is really points / area: every "all" value equals the `area` folder count. The real defect totals are 96, 95 and 74. Deng's recall denominators in Table 2 (99 = 33×3, 138 = 46×3, 123 = 41×3) confirm the point counts. This also explains the apparent ASM inconsistency noted in 0.4.
-- **Normal pool (needs a C1 decision):** Deng's split needs 650 normals per modality, but `train/good` has only 401 for LSM-2 and 500 for ASM. The split can only be met by drawing support, calibration and evaluation normals from `train/good` ∪ `test/good`, with `test` then holding defects only. C1 currently says test goods go in `test`, so this needs a small C1 amendment, approved by both of us, before A1.2 (#11) generates manifests. A1.1 only lays out and counts the data; it does not assign roles.
+- **Normal pool (C1):** Deng's split needs 650 normals per modality, but `train/good` has only 401 for LSM-2 and 500 for ASM. C1 therefore pools `train/good` and `test/good`, draws support, calibration and evaluation normals from that pool per seed, and keeps only defects in `test`. Pooled normals not drawn in a seed (133, 4,498 and 1,766) are unused, so FPR uses exactly 200 normals per modality, as in Deng. Using them as extra FPR normals was considered and rejected: it would break the comparison with Deng and make the modalities' precision uneven.
 
 ### MVTec AD
 
