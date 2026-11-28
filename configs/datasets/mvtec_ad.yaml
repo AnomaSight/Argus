@@ -1,0 +1,30 @@
+# MVTec AD: categories and split sizes (task 0.4).
+# Rationale: docs/experiment_protocol.md. Split roles: contract C1 in docs/architecture.md.
+
+dataset: mvtec_ad
+root: mvtec_ad # under ARGUS_DATA_DIR, laid out by A1.1
+preprocess: patchcore # resize 256, centre-crop 224
+seeds: [20260801, 20260802, 20260803]
+
+categories:
+  hazelnut:
+    # Official MVTec AD split. A1.1 checks these after download and fails if they differ.
+    expected_counts:
+      train_good: 391
+      test_good: 40
+      test_defect: 70
+    # Drawn from train/good per seed. `test` is the whole original test set (C1).
+    split:
+      support: 200
+      calib: 100
+      eval_normal: 91
+
+  screw:
+    expected_counts:
+      train_good: 320
+      test_good: 41
+      test_defect: 119
+    split:
+      support: 160
+      calib: 100
+      eval_normal: 60
