@@ -74,9 +74,17 @@ def test_mvtec_has_enough_evaluation_normals(cat, c):
 def test_isp_ad_matches_deng_and_fits_available_normals(cat, c):
     assert c["split"] == {"support": 300, "calib": 150, "eval_normal": 200}
     assert c["split"]["eval_normal"] >= MIN_EVAL_NORMALS
-    good = c["expected_counts"]["good"]
-    if good is not None:
-        assert sum(c["split"].values()) <= good
+    # Normal pool = train/good + test/good (A1.1 finding; LSM_2 has only 401 train goods).
+    good = c["expected_counts"]["train_good"] + c["expected_counts"]["test_good"]
+    assert sum(c["split"].values()) <= good
+
+
+@pytest.mark.parametrize("name", DATASETS)
+def test_expected_counts_are_ints(name):
+    for cat, c in categories(name):
+        assert c["expected_counts"], cat
+        for field, n in c["expected_counts"].items():
+            assert isinstance(n, int) and not isinstance(n, bool) and n >= 0, (cat, field)
 
 
 def test_min_calibration_size_reference_values():

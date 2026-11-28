@@ -10,11 +10,13 @@ Configs: `configs/datasets/mvtec_ad.yaml` and `configs/datasets/isp_ad.yaml`. Ro
 |---|---|---|---|---|---|---|---|---|
 | MVTec AD | hazelnut | 391 | 200 | 100 | 91 | 40 | 131 | 70 |
 | MVTec AD | screw | 320 | 160 | 100 | 60 | 41 | 101 | 119 |
-| ISP-AD | LSM-2 | ≥ 650 | 300 | 150 | 200 | — | 200 | 63 (33 point) |
-| ISP-AD | LSM-1 | ≥ 650 | 300 | 150 | 200 | — | 200 | 49 (46 point) |
-| ISP-AD | ASM | ≥ 650 | 300 | 150 | 200 | — | 200 | ? (41 point) |
+| ISP-AD | LSM-2 | 401 | 300 | 150 | 200 | 382 ᵃ | 200 | 96 (33 point) |
+| ISP-AD | LSM-1 | 3,678 | 300 | 150 | 200 | 1,470 ᵃ | 200 | 95 (46 point) |
+| ISP-AD | ASM | 500 | 300 | 150 | 200 | 1,916 ᵃ | 200 | 74 (41 point) |
 
 "FPR normals" counts every good image FPR is measured on: `eval_normal` plus the original test goods (C1).
+
+ᵃ ISP-AD counts are from the A1.1 download. LSM-2 and ASM have fewer than 650 train goods, so their split must also draw on the test goods; see "Downloaded counts (A1.1)" below. Until C1 is amended, the ISP-AD "FPR normals" column assumes the test goods are pooled, not added on top.
 
 **Why these MVTec AD categories.**
 - **Hazelnut** has many training images (391), which leaves room to hold some out for calibration. But PatchCore already reaches 100% image AUROC on it, so memory size may change nothing visible.
@@ -30,10 +32,45 @@ Configs: `configs/datasets/mvtec_ad.yaml` and `configs/datasets/isp_ad.yaml`. Ro
 **Precision limit.** FPR on MVTec AD is coarse at any split we can afford. At a true FPR of 5%, the 95% Wilson interval is about 8 points wide with 131 normals ([2.6%, 10.6%]) and about 9 points with 101 ([2.1%, 11.1%]). Moving more images from support to evaluation would hardly narrow this. Per-seed FPR differences between memory settings smaller than a few points therefore cannot be resolved on MVTec AD. ISP-AD, with 200 evaluation normals ([2.7%, 9.0%]) and three seeds, is the more precise test.
 
 **ISP-AD** copies Deng's design exactly (Table 1): per modality, 300 support, 150 calibration and 200 evaluation normals, plus every real defect in `test`. This allows a direct comparison with Deng's 100%-memory results before adding 10%, 1% and ASO.
-- **Points for A1.1:** the number of normal images per modality is not published. The split needs at least 650 per modality, and A1.1 records the real count.
-- **ASM inconsistency:** Deng's table lists 33 defects in total for ASM, but also 41 point defects, which should be a subset. A1.1 counts the real number.
+- **Normal images (counted in A1.1):** the split needs 650 per modality. `train/good` alone has 401 (LSM-2), 3,678 (LSM-1) and 500 (ASM); with `test/good` added, 783, 5,148 and 2,416.
+- **Deng's defect column (resolved in A1.1):** Table 1's "point / all" is really points / area, so ASM's 33 is its area count, not a total below 41. Totals are 96, 95 and 74.
 - **Comparing recall:** Deng's recall counts point defects only, while ours counts all defects. Point defects stay identifiable through `defect_type` for a like-for-like comparison.
 
 **Sources.**
 - **MVTec AD:** the standard split, as listed in published benchmark tables. A1.1 verifies the counts after download and fails loudly if they differ from `expected_counts`.
 - **ISP-AD:** Deng, arXiv:2608.15090, Table 1.
+
+## Downloaded counts (A1.1)
+
+Commands: `make data-isp` and `make data-mvtec ARCHIVE=<path or URL>` (scripts in `scripts/`). Both lay the data out under `$ARGUS_DATA_DIR` (default `data/`), check the counts below with `python -m argus.data.verify`, and write `.argus_source.json` (archive, hash, counts, date) next to the data. Rerunning skips anything already present and verified.
+
+### ISP-AD
+
+Source: Zenodo record 14911043, v1.0, CC BY-NC-SA 4.0. Only `unsupervised.zip` is downloaded (425,983,226 B, MD5 `edfb54cb26629b53963fa08bec9e4a6b`, SHA-256 `79ccb202c034d972a1e73a55ec286ac1d689766b94eb0ea35f7b61f6c9f8ad3e`). The record's six supervised and additional archives (0.55–5.5 GB each) are not used.
+
+| Modality (folder) | `train/good` | `test/good` | Normals (train + test) | `test/points` | `test/area` | Defects |
+|---|---|---|---|---|---|---|
+| LSM-2 (`LSM_2`) | 401 | 382 | 783 | 33 | 63 | 96 |
+| LSM-1 (`LSM_1`) | 3,678 | 1,470 | 5,148 | 46 | 49 | 95 |
+| ASM (`ASM`) | 500 | 1,916 | 2,416 | 41 | 33 | 74 |
+
+Every defect image has a mask with the same filename under `ground_truth/{points,area}/`.
+
+- **Folder names:** the archive's own names (`LSM_1`, `LSM_2`, `ASM`) are kept, and the config keys match them, because C1 ties `{category}` to the folder name and ISP-AD's own loaders expect these names. Prose keeps "LSM-1".
+- **Not extracted:** `LSM_1/train/good_reduced/` (500 files, each a byte-identical copy of a `train/good` image, checked by CRC32; keeping both would let the same image land in two roles) and the archive's `configs/` folder (other methods' settings). `license.txt` and `changelog.txt` are kept in `data/isp_ad/`.
+- **Deng's Table 1:** the "point / all" column (LSM-2 33/63, LSM-1 46/49, ASM 41/33) is really points / area: every "all" value equals the `area` folder count. The real defect totals are 96, 95 and 74. Deng's recall denominators in Table 2 (99 = 33×3, 138 = 46×3, 123 = 41×3) confirm the point counts. This also explains the apparent ASM inconsistency noted in 0.4.
+- **Normal pool (needs a C1 decision):** Deng's split needs 650 normals per modality, but `train/good` has only 401 for LSM-2 and 500 for ASM. The split can only be met by drawing support, calibration and evaluation normals from `train/good` ∪ `test/good`, with `test` then holding defects only. C1 currently says test goods go in `test`, so this needs a small C1 amendment, approved by both of us, before A1.2 (#11) generates manifests. A1.1 only lays out and counts the data; it does not assign roles.
+
+### MVTec AD
+
+Source: the archive downloaded from mvtec.com after accepting the licence (CC BY-NC-SA 4.0). MVTec does not publish checksums, so the script checks file counts against `configs/datasets/mvtec_ad.yaml` and records the archive's SHA-256 so both laptops can confirm they used the same file. Only the configured categories are extracted.
+
+| Category | `train/good` | `test/good` | Test defects | Defect types |
+|---|---|---|---|---|
+| hazelnut | 391 | 40 | 70 | crack 18, cut 17, hole 18, print 17 |
+| screw | 320 | 41 | 119 | manipulated_front 24, scratch_head 24, scratch_neck 25, thread_side 23, thread_top 23 |
+
+Verified on the full archive `mvtec_anomaly_detection.tar.xz` (5,264,982,680 B, SHA-256 `cf4313b13603bec67abb49ca959488f7eedce2a9f7795ec54446c649ac98cd3d`). The totals are enforced from the config. The per-type breakdown is printed but not enforced, and it matched the usual MVTec AD split exactly. Every defect image has its `ground_truth/{type}/{id}_mask.png`.
+
+- The archive has no wrapper folder: the categories, `license.txt` and `readme.txt` sit at the top level, and each category folder also carries its own `license.txt` and `readme.txt`, which are kept.
+- The archive stores folders and files as owner read-only (`r-x`, `r--`). The script makes the extracted tree owner-writable, otherwise it could not be moved into place or cleaned up.
