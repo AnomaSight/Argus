@@ -3,29 +3,34 @@
 
 dataset: isp_ad
 root: isp_ad # under ARGUS_DATA_DIR, laid out by A1.1
-source: public unsupervised split, Zenodo record 14911043
+source: public unsupervised split, Zenodo record 14911043 (unsupervised.zip)
 preprocess: deng # resize to 256 x 256, no crop
 seeds: [20260801, 20260802, 20260803] # Deng's seeds
 
 categories:
-  # Keys are ISP-AD's native modality labels; A1.1 uses them as folder names.
-  LSM-2:
-    # From Deng's Table 1. `good` (normal images available) is not published; A1.1 records it.
+  # Keys are the archive's modality folder names (LSM_2 is "LSM-2" in Deng and in prose);
+  # A1.1 extracts each one to data/isp_ad/{key}/.
+  LSM_2:
+    # Counted by A1.1 from unsupervised.zip v1.0. Deng's Table 1 "point / all" column is
+    # really points / area ("all" = the area folder count), so total defects = points + area.
     expected_counts:
-      good: null
+      train_good: 401
+      test_good: 382
       point_defects: 33
-      all_defects: 63
+      area_defects: 63
     # Drawn from the modality's normal images per seed. `test` holds all real defects (C1).
+    # LSM_2 has only 401 train goods, so 650 normals need train/good + test/good (see protocol).
     split:
       support: 300
       calib: 150
       eval_normal: 200
 
-  LSM-1:
+  LSM_1:
     expected_counts:
-      good: null
+      train_good: 3678 # train/good_reduced (500 duplicates of these) is not extracted
+      test_good: 1470
       point_defects: 46
-      all_defects: 49
+      area_defects: 49
     split:
       support: 300
       calib: 150
@@ -33,10 +38,10 @@ categories:
 
   ASM:
     expected_counts:
-      good: null
+      train_good: 500
+      test_good: 1916
       point_defects: 41
-      # Deng's Table 1 lists 33, below the 41 point defects it should include. A1.1 counts it.
-      all_defects: null
+      area_defects: 33
     split:
       support: 300
       calib: 150
