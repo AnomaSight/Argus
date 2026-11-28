@@ -10,11 +10,13 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import zlib
 from pathlib import Path
 
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
+from PIL import Image
 
 ROLE_ORDER = ("support", "calib", "eval_normal", "test")
 # How far good images drift up, in units of their spread, as memory shrinks.
@@ -55,15 +57,31 @@ def _manifest_rows(
     return rows
 
 
-def _heatmap(rng, size, score, defect):
-    """Smooth float16 map; defects get one hot blob. Max stays below the image score."""
+def _heatmap(rng, size, score, defect, where):
+    """Smooth float16 map; defects get one hot blob. Max stays below the image score.
+
+    Returns (heatmap, blob mask in the heatmap frame or None)."""
     h, w = size
     yy, xx = np.mgrid[0:h, 0:w]
     base = rng.normal(0, 0.05, size).astype(np.float32) + 0.6 * score
+    blob = None
     if defect:
-        cy, cx, r = rng.uniform(0.2, 0.8) * h, rng.uniform(0.2, 0.8) * w, 0.12 * min(h, w)
-        base += 0.35 * score * np.exp(-((yy - cy) ** 2 + (xx - cx) ** 2) / (2 * r * r))
-    return np.minimum(base, 0.95 * score).astype(np.float16)
+        # Placed by the image alone, so every setting and seed agrees with the one mask file.
+        cy, cx = where.uniform(0.2, 0.8, 2) * (h, w)
+        r = 0.12 * min(h, w)
+        d2 = (yy - cy) ** 2 + (xx - cx) ** 2
+        base += 0.35 * score * np.exp(-d2 / (2 * r * r))
+        blob = d2 < r * r
+    return np.minimum(base, 0.95 * score).astype(np.float16), blob
+
+
+def _write_mask(path: Path, blob: np.ndarray) -> None:
+    """Save a blob drawn in the 224 x 224 patchcore frame as a 256 x 256 source mask, so
+    resize 256 + centre-crop 224 (C2's mask transform) lands it back where it was drawn."""
+    full = np.zeros((256, 256), dtype=np.uint8)
+    full[16:240, 16:240] = blob * 255
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(full).save(path)
 
 
 def write_fake_run(
@@ -82,10 +100,16 @@ def write_fake_run(
     normal_mean: float = 2.0,
     normal_sd: float = 0.25,
     defect_shift: float = 4.0,
+    data_dir: str | Path | None = None,
 ) -> Path:
-    """Write splits/... and scores/... under `artifacts`; return the run folder."""
+    """Write splits/... and scores/... under `artifacts`; return the run folder.
+
+    With `data_dir`, also write each defect's mask PNG at its C1 `mask_path` there (needs
+    input_size 224 x 224, the patchcore frame)."""
     if setting not in SETTING_SHIFT:
         raise ValueError(f"setting must be one of {sorted(SETTING_SHIFT)}, got {setting!r}")
+    if data_dir is not None and tuple(input_size) != (224, 224):
+        raise ValueError("fake masks need input_size (224, 224)")
     artifacts = Path(artifacts)
     rng = np.random.default_rng([seed, list(SETTING_SHIFT).index(setting)])
     rows = _manifest_rows(
@@ -111,7 +135,11 @@ def write_fake_run(
         score = float(np.float32(abs(rng.normal(mean, normal_sd))))
         rel = f"heatmaps/{image_id}.npy"
         (run / rel).parent.mkdir(parents=True, exist_ok=True)
-        np.save(run / rel, _heatmap(rng, input_size, score, label == 1))
+        where = np.random.default_rng(zlib.crc32(image_id.encode()))
+        heatmap, blob = _heatmap(rng, input_size, score, label == 1, where)
+        np.save(run / rel, heatmap)
+        if data_dir is not None and blob is not None:
+            _write_mask(Path(data_dir) / mask, blob)
         for name, value in zip(
             SCORES_SCHEMA.names, (image_id, role, label, dtype, score, rel, mask), strict=True
         ):
