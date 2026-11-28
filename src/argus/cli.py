@@ -1,5 +1,5 @@
 """The ``argus`` command. Each task adds its own subcommand; A1.2 adds ``splits``; P1.5 adds
-``fake-scores``; P2.3 adds ``check-scores``.
+``fake-scores``; P2.3 adds ``check-scores``; P2.2 adds ``report``.
 
 argus splits --dataset {mvtec_ad,isp_ad} [--category NAME ...] [--seeds N ...]
              [--data-dir DIR] [--out-dir DIR] [--force] [--check]
@@ -165,6 +165,20 @@ def cmd_check_scores(args) -> int:
     return 1 if failed else 0
 
 
+def cmd_report(args) -> int:
+    from argus.evaluation.report import build_report, load_targets
+
+    targets, delta = load_targets()
+    alphas = args.alpha or targets
+    delta = args.delta or delta
+    artifacts = args.artifacts or config.artifacts_dir()
+    data_dir = None if args.skip_pixel else (args.data_dir or config.data_dir())
+    for alpha in alphas:
+        path = build_report(artifacts, args.dataset, args.category, alpha, delta, data_dir)
+        print(_show(path) if path else f"alpha={alpha:g}: every run skipped, no table")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="argus", description="Argus command line")
     sub = ap.add_subparsers(dest="command", required=True, metavar="COMMAND")
@@ -201,6 +215,20 @@ def build_parser() -> argparse.ArgumentParser:
     ck = sub.add_parser("check-scores", help="check C2 run folders; exit 1 on any problem (P2.3)")
     ck.add_argument("folders", nargs="+", type=Path)
     ck.set_defaults(func=cmd_check_scores)
+
+    rp = sub.add_parser("report", help="calibrate runs and write the results tables (P2.2)")
+    rp.add_argument("--dataset", required=True)
+    rp.add_argument("--category", required=True)
+    rp.add_argument(
+        "--alpha", nargs="+", type=float, help="default: configs/experiments/fpr_targets.yaml"
+    )
+    rp.add_argument("--delta", type=float, help="default: from fpr_targets.yaml (0.05)")
+    rp.add_argument("--artifacts", type=Path, help="default: $ARGUS_ARTIFACTS_DIR")
+    rp.add_argument(
+        "--data-dir", type=Path, help="masks for pixel metrics; default $ARGUS_DATA_DIR"
+    )
+    rp.add_argument("--skip-pixel", action="store_true", help="leave pixel AUROC and PRO empty")
+    rp.set_defaults(func=cmd_report)
     return ap
 
 
