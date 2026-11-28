@@ -1,0 +1,9 @@
+# Stress-test perturbations (P2.4): severity 1 is the mildest; severity 0 is always the clean
+# image. Each list holds the parameter for severities 1, 2, 3, ...
+#   brightness, contrast: PIL ImageEnhance factor (1.0 = unchanged; below 1 = darker / flatter)
+#   blur: Gaussian blur radius in pixels (sigma), applied at the image's original resolution
+#   jpeg: JPEG quality (lower = more compression artefacts)
+brightness: [0.9, 0.8, 0.7, 0.6, 0.5]
+contrast: [0.9, 0.8, 0.7, 0.6, 0.5]
+blur: [0.5, 1.0, 2.0, 3.0, 4.0]
+jpeg: [90, 70, 50, 30, 10]
