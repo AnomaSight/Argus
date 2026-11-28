@@ -101,7 +101,7 @@ jobs:
       # shellcheck is preinstalled on ubuntu runners. Empty files are skipped.
       - name: shellcheck
         run: |
-          files=$(git ls-files '*.sh' | while read -r f; do [ -s "$f" ] && echo "$f"; done)
+          files=$(git ls-files '*.sh' | while read -r f; do if [ -s "$f" ]; then echo "$f"; fi; done)
           if [ -z "$files" ]; then echo "No non-empty shell scripts."; exit 0; fi
           echo "$files" | xargs shellcheck
 
