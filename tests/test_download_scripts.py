@@ -72,17 +72,20 @@ def mvtec_members(cat, train=3, good=2, defects=None):
 
 
 def make_tar_xz(path: Path, members, wrapper=""):
-    # Same modes as the real MVTec AD archive: folders r-xr-x---, files r--r-----.
-    dirs = sorted({str(Path(wrapper + m).parent) for m in members} - {"."})
-    dirs = sorted({str(p) for d in dirs for p in [Path(d), *Path(d).parents]} - {"."})
+    # Like the real MVTec AD archive: each folder entry comes just before its contents
+    # (GNU tar relies on that order), folders are r-xr-x--- and files r--r-----.
+    added = set()
     with tarfile.open(path, "w:xz") as tf:
-        for d in dirs:
-            info = tarfile.TarInfo(d)
-            info.type, info.mode = tarfile.DIRTYPE, 0o550
-            tf.addfile(info)
         for m in members:
+            name = Path(wrapper + m)
+            for d in reversed(name.parents[:-1]):  # outermost folder first
+                if d not in added:
+                    added.add(d)
+                    info = tarfile.TarInfo(str(d))
+                    info.type, info.mode = tarfile.DIRTYPE, 0o550
+                    tf.addfile(info)
             data = png(m) if m.endswith(".png") else b"text"
-            info = tarfile.TarInfo(wrapper + m)
+            info = tarfile.TarInfo(str(name))
             info.size, info.mode = len(data), 0o440
             tf.addfile(info, io.BytesIO(data))
     return path
