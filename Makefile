@@ -2,7 +2,7 @@
 # Override with: make install PYTHON=/path/to/python
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-.PHONY: help venv install test lint format data-isp data-mvtec
+.PHONY: help venv install test lint format data-isp data-mvtec splits check-splits
 
 help:
 	@echo "make venv     create .venv (local laptops)"
@@ -12,6 +12,8 @@ help:
 	@echo "make format   ruff format + import sort"
 	@echo "make data-isp                 download ISP-AD (unsupervised split, ~426 MB) into data/"
 	@echo "make data-mvtec ARCHIVE=PATH  extract MVTec AD from the downloaded archive(s) or URL"
+	@echo "make splits                   write the C1 split manifests (artifacts/splits/)"
+	@echo "make check-splits             validate the existing split manifests"
 
 venv:
 	python3 -m venv .venv
@@ -42,3 +44,10 @@ data-mvtec:
 		exit 2; \
 	fi
 	PYTHON=$(PYTHON) bash scripts/download_mvtec_ad.sh $(ARCHIVE)
+
+# Same as `argus splits ...`; run through $(PYTHON) so it works without activating .venv.
+splits:
+	$(PYTHON) -m argus.cli splits --dataset mvtec_ad && $(PYTHON) -m argus.cli splits --dataset isp_ad
+
+check-splits:
+	$(PYTHON) -m argus.cli splits --dataset mvtec_ad --check && $(PYTHON) -m argus.cli splits --dataset isp_ad --check

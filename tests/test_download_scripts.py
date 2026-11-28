@@ -12,7 +12,8 @@ import zipfile
 from pathlib import Path
 
 import pytest
-import yaml
+
+from tests.conftest import write_config
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO / "scripts"
@@ -39,20 +40,6 @@ def run(script, *args, cwd, env=None):
 
 def mtimes(root: Path) -> dict:
     return {str(p): p.stat().st_mtime_ns for p in sorted(root.rglob("*")) if p.is_file()}
-
-
-def write_config(path, dataset, cats):
-    cfg = {
-        "dataset": dataset,
-        "root": dataset,
-        "preprocess": "patchcore",
-        "categories": {
-            k: {"expected_counts": v, "split": {"support": 1, "calib": 1, "eval_normal": 1}}
-            for k, v in cats.items()
-        },
-    }
-    path.write_text(yaml.safe_dump(cfg, sort_keys=False))
-    return path
 
 
 def png(name: str) -> bytes:
