@@ -74,7 +74,7 @@ def test_mvtec_has_enough_evaluation_normals(cat, c):
 def test_isp_ad_matches_deng_and_fits_available_normals(cat, c):
     assert c["split"] == {"support": 300, "calib": 150, "eval_normal": 200}
     assert c["split"]["eval_normal"] >= MIN_EVAL_NORMALS
-    # Normal pool = train/good + test/good (A1.1 finding; LSM_2 has only 401 train goods).
+    # C1: the normal pool is train/good + test/good (LSM_2 has only 401 train goods).
     good = c["expected_counts"]["train_good"] + c["expected_counts"]["test_good"]
     assert sum(c["split"].values()) <= good
 
