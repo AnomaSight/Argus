@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
-import { getModels, inspect, USE_MOCK } from "../api/client";
+import { getModels, inspect } from "../api/client";
 import type { InspectResponse, ModelInfo } from "../api/types";
 import ImageUpload from "../components/ImageUpload";
 import VerdictBadge from "../components/VerdictBadge";
@@ -280,9 +280,8 @@ export default function InspectPage() {
       </section>
 
       {error && <p className="error" role="alert">{error}</p>}
-      {USE_MOCK && (
-        <p className="fine">Sample data: scores and heatmaps are generated in the browser until the trained models are served.</p>
-      )}
+      {/* Remove once P3.2 serves trained banks through argus.load_detector(). */}
+      <p className="fine">Scores come from a stand-in detector until the trained memory banks are served.</p>
     </main>
   );
 }
