@@ -1,0 +1,43 @@
+# ISP-AD: modalities and split sizes (task 0.4), copying Deng (arXiv:2608.15090, Table 1).
+# Rationale: docs/experiment_protocol.md. Split roles: contract C1 in docs/architecture.md.
+
+dataset: isp_ad
+root: isp_ad # under ARGUS_DATA_DIR, laid out by A1.1
+source: public unsupervised split, Zenodo record 14911043
+preprocess: deng # resize to 256 x 256, no crop
+seeds: [20260801, 20260802, 20260803] # Deng's seeds
+
+categories:
+  # Keys are ISP-AD's native modality labels; A1.1 uses them as folder names.
+  LSM-2:
+    # From Deng's Table 1. `good` (normal images available) is not published; A1.1 records it.
+    expected_counts:
+      good: null
+      point_defects: 33
+      all_defects: 63
+    # Drawn from the modality's normal images per seed. `test` holds all real defects (C1).
+    split:
+      support: 300
+      calib: 150
+      eval_normal: 200
+
+  LSM-1:
+    expected_counts:
+      good: null
+      point_defects: 46
+      all_defects: 49
+    split:
+      support: 300
+      calib: 150
+      eval_normal: 200
+
+  ASM:
+    expected_counts:
+      good: null
+      point_defects: 41
+      # Deng's Table 1 lists 33, below the 41 point defects it should include. A1.1 counts it.
+      all_defects: null
+    split:
+      support: 300
+      calib: 150
+      eval_normal: 200
