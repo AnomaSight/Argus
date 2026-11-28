@@ -1,0 +1,5 @@
+# FPR targets for the results tables (P2.2). Each target gets its own threshold file and table.
+# A run whose calibration set is too small for a target is skipped with a warning
+# (2% needs 149 calibration images at delta 0.05, so MVTec AD runs skip it).
+delta: 0.05
+targets: [0.10, 0.05, 0.02]

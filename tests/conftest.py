@@ -2,7 +2,10 @@
 
 from pathlib import Path
 
+import pytest
 import yaml
+
+from argus.evaluation.fake_scores import write_fake_run
 
 DEFAULT_SPLIT = {"support": 1, "calib": 1, "eval_normal": 1}
 
@@ -58,3 +61,14 @@ def write_config(path: Path, dataset: str, cats: dict, splits=None, seeds=None) 
     }
     path.write_text(yaml.safe_dump(cfg, sort_keys=False))
     return path
+
+
+@pytest.fixture
+def fake_run(tmp_path):
+    """Factory for small fake C2 run folders: fake_run(setting="m10", ...) -> run folder."""
+
+    def make(**kw):
+        kw = {"input_size": (16, 16), "n_support": 10, **kw}
+        return write_fake_run(tmp_path / "artifacts", **kw)
+
+    return make
