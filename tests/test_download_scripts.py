@@ -72,11 +72,12 @@ def mvtec_members(cat, train=3, good=2, defects=None):
 
 
 def make_tar_xz(path: Path, members, wrapper=""):
-    # Like the real MVTec AD archive: each folder entry comes just before its contents
-    # (GNU tar relies on that order), folders are r-xr-x--- and files r--r-----.
+    # Like the real MVTec AD archive (written by a depth-first walk): each folder entry comes
+    # just before its contents and a folder's contents are contiguous, which GNU tar relies on
+    # when folders are read-only. Folders are r-xr-x---, files r--r-----.
     added = set()
     with tarfile.open(path, "w:xz") as tf:
-        for m in members:
+        for m in sorted(members, key=lambda m: Path(m).parts):
             name = Path(wrapper + m)
             for d in reversed(name.parents[:-1]):  # outermost folder first
                 if d not in added:
