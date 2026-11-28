@@ -504,3 +504,153 @@ print(f"FPR {op.fpr:.3f} {op.fpr_ci}, recall {op.recall:.3f} {op.recall_ci}")
 ```
 
 The evaluation rows here are every `eval_normal` and `test` row. Because `operating_point` splits by label, that gives FPR over all held-out good images and recall over the test defects, as C1 specifies.
+
+### C5. HTTP API
+
+**Provided by:** the backend (P1.6 with a stub detector, P3.2 with real banks, Pratyush).
+**Used by:** the frontend (P1.7, P2.5, P3.3, P4.3, P4.4, Pratyush). Arvind reviews what the demo exposes.
+
+The types are defined twice, once per side, and must stay identical: `backend/app/schemas.py` (Pydantic) and `frontend/src/api/types.ts` (TypeScript). A change to one is a change to C5 and updates both in the same PR.
+
+#### Conventions
+
+- JSON field names are `snake_case` on both sides; there is no camelCase conversion.
+- Paths have no prefix: `/health`, `/models`, `/inspect`, `/results`.
+- Numbers are JSON numbers. Missing values are `null`, never `NaN`.
+- Successful responses use status 200. Every error uses the error format below.
+
+#### `GET /health`
+
+```json
+{ "status": "ok" }
+```
+
+#### `GET /models`
+
+The memory banks the backend can serve, sorted by `model_id`. A bank is listed only if its threshold file exists (C4).
+
+```json
+[
+  {
+    "model_id": "mvtec_ad/hazelnut/m10/seed20260801",
+    "dataset": "mvtec_ad",
+    "category": "hazelnut",
+    "setting": "m10",
+    "seed": 20260801,
+    "coreset_size": 15680,
+    "bank_mb": 61.25,
+    "tau": 2.231,
+    "alpha": 0.05,
+    "delta": 0.05,
+    "review_band": null
+  }
+]
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `model_id` | string | The bank's path below `artifacts/banks/` (C3). |
+| `dataset`, `category`, `setting` | string | As in C3's `info`. |
+| `seed` | int | As in C3's `info`. |
+| `coreset_size` | int | As in C3's `info`. |
+| `bank_mb` | float | As in C3's `info`. |
+| `tau` | float | The calibrated cut-off, from the bank's threshold file at the backend's default target. |
+| `alpha`, `delta` | float | The target that `tau` was fitted for. |
+| `review_band` | object or null | `{ "tau_low": float, "tau_high": float }` from the review zone (A4.1), with `tau_low ≤ tau ≤ tau_high`; `null` until a review zone is fitted for this bank. |
+
+#### `POST /inspect`
+
+Request: `multipart/form-data` with two fields:
+
+- `image`: the image file. PNG, JPEG, BMP or TIFF, at most 10 MB.
+- `model_id`: one of the ids from `/models`.
+
+Response:
+
+```json
+{
+  "model_id": "mvtec_ad/hazelnut/m10/seed20260801",
+  "score": 3.406,
+  "tau": 2.231,
+  "review_band": null,
+  "verdict": "defect",
+  "input_png_base64": "iVBORw0KGgo...",
+  "heatmap_png_base64": "iVBORw0KGgo...",
+  "heatmap_range": [1.5, 3.0],
+  "latency_ms": 52.7
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `model_id` | string | Echoes the request. |
+| `score` | float | The image score from C3's `Detector.score`. |
+| `tau`, `review_band` | | As in `/models` for this model. |
+| `verdict` | `"good"`, `"defect"` or `"review"` | See the rule below. |
+| `input_png_base64` | string | Base64 PNG of C3's `input_view(image)`: the image as the model sees it, resized and cropped. |
+| `heatmap_png_base64` | string | Base64 RGBA PNG of the heatmap, colour-mapped, the same size as the input view, so it overlays it pixel for pixel. |
+| `heatmap_range` | [float, float] | The score values mapped to the bottom and top of the colour scale. |
+| `latency_ms` | float | Server time from receiving the decoded image to the response being ready. Excludes upload time. |
+
+**Verdict rule** (strict comparisons, as in C4):
+
+- With no review band: `defect` if `score > tau`, otherwise `good`.
+- With a review band: `good` if `score ≤ tau_low`, `defect` if `score > tau_high`, otherwise `review`.
+
+The frontend recomputes the verdict with the same rule when the threshold slider (P3.3) moves `tau`, so `score` and `tau` are always in the response.
+
+**Heatmap colours:** the colour range is fixed per model, not stretched to each image. A good image therefore looks calm instead of showing its own noise as hot spots. The backend chooses the range and reports it in `heatmap_range`, so the frontend can draw a legend.
+
+**Overlay:** the frontend draws `heatmap_png_base64` over `input_png_base64`, not over the uploaded file. With the `patchcore` preset the model sees a centre crop, so an overlay on the raw upload would be misaligned.
+
+#### `GET /results`
+
+The result tables P2.2 and P4.1 write under `artifacts/results/`, sorted by `name`.
+
+```json
+[
+  {
+    "name": "mvtec_ad/hazelnut/memory_sweep_alpha0.05",
+    "columns": ["setting", "fpr", "fpr_ci_low", "fpr_ci_high", "recall", "image_auroc", "bank_mb"],
+    "rows": [
+      ["m100", 0.048, 0.021, 0.106, 0.99, 1.0, 612.5],
+      ["m10", 0.052, 0.024, 0.11, 0.99, 1.0, 61.25]
+    ]
+  }
+]
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `name` | string | The table's CSV path below `artifacts/results/`, without `.csv`. |
+| `columns` | string[] | The CSV header. |
+| `rows` | (string, number or null)[][] | One array per CSV row, in column order. Cells that parse as numbers are numbers, empty cells are `null`, everything else is a string. |
+
+The example values are illustrative.
+
+#### Errors
+
+Every error response, including FastAPI's own request-validation errors, uses this body:
+
+```json
+{ "error": { "code": "model_not_found", "message": "No model with id 'mvtec_ad/hazelnut/m5/seed1'." } }
+```
+
+| Status | `code` | When |
+|---|---|---|
+| 400 | `bad_request` | A required form field is missing or malformed. |
+| 404 | `model_not_found` | `model_id` is not in `/models`. |
+| 413 | `file_too_large` | The upload is over 10 MB. |
+| 415 | `unsupported_media_type` | The file is not PNG, JPEG, BMP or TIFF. |
+| 422 | `invalid_image` | The file has an allowed type but cannot be decoded. |
+| 503 | `model_unavailable` | The bank or its threshold file failed to load. |
+| 500 | `internal_error` | Anything else. The message never includes a stack trace. |
+
+`message` is for people; the frontend branches on `code` only.
+
+#### Rules
+
+1. `model_id` is only ever looked up in the registry of discovered banks. It is never joined into a filesystem path, so a crafted id cannot read other files.
+2. The backend loads each bank once and keeps it (P3.2), and calls each detector one request at a time (C3).
+3. `schemas.py` and `types.ts` define the same fields with the same types and the same optionality.
+4. During development the backend allows CORS from the Vite dev server (`http://localhost:5173`).
