@@ -1,5 +1,5 @@
 """The ``argus`` command. Each task adds its own subcommand; A1.2 adds ``splits``; P1.5 adds
-``fake-scores``.
+``fake-scores``; P2.3 adds ``check-scores``.
 
 argus splits --dataset {mvtec_ad,isp_ad} [--category NAME ...] [--seeds N ...]
              [--data-dir DIR] [--out-dir DIR] [--force] [--check]
@@ -152,6 +152,19 @@ def cmd_fake_scores(args) -> int:
     return 0
 
 
+def cmd_check_scores(args) -> int:
+    from argus.evaluation.schema_check import check_run
+
+    failed = False
+    for folder in args.folders:
+        problems = check_run(folder)
+        failed |= bool(problems)
+        print(f"{'FAIL' if problems else 'ok  '} {_show(folder)}")
+        for p in problems:
+            print(f"     {p}")
+    return 1 if failed else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="argus", description="Argus command line")
     sub = ap.add_subparsers(dest="command", required=True, metavar="COMMAND")
@@ -184,6 +197,10 @@ def build_parser() -> argparse.ArgumentParser:
     fk.add_argument("--settings", nargs="+", default=["m100", "m10", "m1", "aso"])
     fk.add_argument("--seeds", nargs="+", type=int, default=[20260801, 20260802, 20260803])
     fk.set_defaults(func=cmd_fake_scores)
+
+    ck = sub.add_parser("check-scores", help="check C2 run folders; exit 1 on any problem (P2.3)")
+    ck.add_argument("folders", nargs="+", type=Path)
+    ck.set_defaults(func=cmd_check_scores)
     return ap
 
 
