@@ -1,4 +1,5 @@
-"""The ``argus`` command. Each task adds its own subcommand; A1.2 adds ``splits``.
+"""The ``argus`` command. Each task adds its own subcommand; A1.2 adds ``splits``; P1.5 adds
+``fake-scores``.
 
 argus splits --dataset {mvtec_ad,isp_ad} [--category NAME ...] [--seeds N ...]
              [--data-dir DIR] [--out-dir DIR] [--force] [--check]
@@ -140,6 +141,17 @@ def cmd_splits(args) -> int:
     return _write(args, cfg, data_dir, out_dir)
 
 
+def cmd_fake_scores(args) -> int:
+    from argus.evaluation.fake_scores import write_fake_run
+
+    artifacts = args.artifacts or config.artifacts_dir()
+    for seed in args.seeds:
+        for setting in args.settings:
+            kw = dict(dataset=args.dataset, category=args.category, setting=setting, seed=seed)
+            print(_show(write_fake_run(artifacts, **kw)))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="argus", description="Argus command line")
     sub = ap.add_subparsers(dest="command", required=True, metavar="COMMAND")
@@ -162,6 +174,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--check", action="store_true", help="validate existing manifests; write nothing"
     )
     sp.set_defaults(func=cmd_splits)
+
+    fk = sub.add_parser(
+        "fake-scores", help="write fake C1 split + C2 run folders for testing (P1.5)"
+    )
+    fk.add_argument("--artifacts", type=Path, help="default: $ARGUS_ARTIFACTS_DIR")
+    fk.add_argument("--dataset", default="mvtec_ad")
+    fk.add_argument("--category", default="hazelnut")
+    fk.add_argument("--settings", nargs="+", default=["m100", "m10", "m1", "aso"])
+    fk.add_argument("--seeds", nargs="+", type=int, default=[20260801, 20260802, 20260803])
+    fk.set_defaults(func=cmd_fake_scores)
     return ap
 
 
