@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import config
-from app.routers import health
+from app import config, errors
+from app.routers import health, inspect, models, results
 
 app = FastAPI(title="Argus")
 app.add_middleware(
@@ -11,4 +11,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.include_router(health.router)
+errors.install(app)
+for module in (health, models, inspect, results):
+    app.include_router(module.router)
