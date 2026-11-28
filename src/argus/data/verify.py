@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -21,9 +20,11 @@ from pathlib import Path
 
 import yaml
 
+from argus.utils import config
+
 DATASETS = ("mvtec_ad", "isp_ad")
 SCHEMA_VERSION = 1
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = config.REPO_ROOT
 CATEGORY_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 MVTEC_FIELDS = ("train_good", "test_good", "test_defect")
@@ -31,7 +32,9 @@ ISP_FIELDS = ("train_good", "test_good", "point_defects", "area_defects", "total
 ISP_DEFECT_DIRS = {"points": "point_defects", "area": "area_defects"}
 
 
-def _pngs(folder: Path) -> list[Path]:
+def list_pngs(folder: Path) -> list[Path]:
+    """``*.png`` files directly in ``folder``, sorted; hidden files (``.DS_Store``, ``._*``)
+    and other extensions are skipped. Shared by the counters here and the A1.2 listings."""
     if not folder.is_dir():
         return []
     return sorted(
@@ -41,7 +44,8 @@ def _pngs(folder: Path) -> list[Path]:
     )
 
 
-def _subdirs(folder: Path) -> list[Path]:
+def list_subdirs(folder: Path) -> list[Path]:
+    """Non-hidden subfolders of ``folder``, sorted."""
     if not folder.is_dir():
         return []
     return sorted(p for p in folder.iterdir() if p.is_dir() and not p.name.startswith("."))
@@ -55,18 +59,18 @@ def count_mvtec(root: Path, category: str) -> dict:
     base = Path(root) / category
     defect_types = {}
     missing_masks = []
-    for d in _subdirs(base / "test"):
+    for d in list_subdirs(base / "test"):
         if d.name == "good":
             continue
-        images = _pngs(d)
+        images = list_pngs(d)
         defect_types[d.name] = len(images)
         for img in images:
             mask = base / "ground_truth" / d.name / f"{img.stem}_mask.png"
             if not mask.is_file():
                 missing_masks.append(f"test/{d.name}/{img.name}")
     return {
-        "train_good": len(_pngs(base / "train" / "good")),
-        "test_good": len(_pngs(base / "test" / "good")),
+        "train_good": len(list_pngs(base / "train" / "good")),
+        "test_good": len(list_pngs(base / "test" / "good")),
         "test_defect": sum(defect_types.values()),
         "defect_types": defect_types,
         "missing_masks": missing_masks,
@@ -83,20 +87,22 @@ def count_isp_ad(root: Path, modality: str) -> dict:
     counts = {}
     missing_masks = []
     for folder, field in ISP_DEFECT_DIRS.items():
-        images = _pngs(base / "test" / folder)
+        images = list_pngs(base / "test" / folder)
         counts[field] = len(images)
         for img in images:
             if not (base / "ground_truth" / folder / img.name).is_file():
                 missing_masks.append(f"test/{folder}/{img.name}")
     known = {"good", *ISP_DEFECT_DIRS}
     return {
-        "train_good": len(_pngs(base / "train" / "good")),
-        "test_good": len(_pngs(base / "test" / "good")),
+        "train_good": len(list_pngs(base / "train" / "good")),
+        "test_good": len(list_pngs(base / "test" / "good")),
         **counts,
         "total_defects": sum(counts.values()),
         "missing_masks": missing_masks,
         "good_reduced_present": (base / "train" / "good_reduced").exists(),
-        "unexpected_test_dirs": [d.name for d in _subdirs(base / "test") if d.name not in known],
+        "unexpected_test_dirs": [
+            d.name for d in list_subdirs(base / "test") if d.name not in known
+        ],
     }
 
 
@@ -296,7 +302,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.list_categories:
         print("\n".join(cfg["categories"]))
         return 0
-    data_dir = args.data_dir or Path(os.environ.get("ARGUS_DATA_DIR") or REPO_ROOT / "data")
+    data_dir = args.data_dir or config.data_dir()
     report = verify(args.dataset, data_dir, args.config, args.category)
     if args.quiet:
         for e in report["errors"]:
