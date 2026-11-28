@@ -98,7 +98,7 @@ mvtec_ad/hazelnut/test/good/012,mvtec_ad/hazelnut/test/good/012.png,test,0,good,
 **Produced by:** the pipeline runner (A2.6, Arvind) for clean runs, and the stress tests (P3.4, Pratyush) for perturbed runs.
 **Read by:** the schema checker (P2.3), the results table (P2.2), pixel metrics (P2.1), stress analysis (P4.1) and spatial lift (P4.5).
 
-A run is one dataset, category, memory setting and seed. Each run writes one folder holding its image scores, its heatmaps and a `run.json`. Analysis code only reads these folders and never writes into them.
+A run is one dataset, category, memory setting and seed. Each run writes one folder holding its image scores, its heatmaps and a `run.json`. Analysis code never changes these files. The only thing it adds to a run folder is threshold files under `thresholds/` (C4).
 
 #### Location
 
@@ -106,7 +106,8 @@ A run is one dataset, category, memory setting and seed. Each run writes one fol
 artifacts/scores/{dataset}/{category}/{setting}/seed{n}/
 ├── scores.parquet
 ├── run.json
-└── heatmaps/{image_id}.npy
+├── heatmaps/{image_id}.npy
+└── thresholds/          (added by calibration, C4)
 ```
 
 - `{dataset}`, `{category}` and `seed{n}`: exactly as in C1, so a run folder and its split manifest share the same names.
@@ -204,7 +205,7 @@ artifacts/scores_stress/{perturbation}/{severity}/{dataset}/{category}/{setting}
 
 - `{perturbation}`: the perturbation name P2.4 defines (for example `brightness`, `contrast`, `blur`, `jpeg`).
 - `{severity}`: the integer level, starting at `1` for the mildest.
-- Rows: only `eval_normal` and `test`. There are no `calib` rows, because the threshold is always the clean run's τ and is never refitted on perturbed images.
+- Rows: only `eval_normal` and `test`. There are no `calib` rows, because the threshold is always the clean run's τ and is never refitted on perturbed images. Stress folders therefore have no `thresholds/`; their τ is read from the clean run's `thresholds/`.
 - The matching clean run is the same path with `scores_stress/{perturbation}/{severity}/` replaced by `scores/`.
 - `run.json` has every key above plus `perturbation` (string) and `severity` (int). `coreset_size`, `coreset_fraction`, `bank_mb` and `setup_s` are copied from the clean run, because the same memory bank is used.
 
@@ -335,3 +336,171 @@ overlay_base = det.input_view(img)       # 224 x 224 RGB, aligned with heatmap
 images = [Image.open(p) for p in paths]
 scores, heatmaps = det.score_batch(images, batch_size=32)  # (N,), (N, 224, 224)
 ```
+
+### C4. Calibration interface
+
+**Provided by:** `fit_threshold` (P1.1), the minimum-size helpers (P1.2) and `operating_point` (P1.3), all by Pratyush.
+**Used by:** the results table (P2.2), stress analysis (P4.1), the backend (P3.2), and Arvind's ISP-AD analysis (A3.4) and review zone (A4.1).
+
+C4 turns calibration scores into a cut-off τ with a false-positive guarantee, and measures FPR and recall at that cut-off. Everyone uses these functions; nobody computes a threshold or a rate any other way.
+
+#### Interface
+
+```python
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+from numpy.typing import ArrayLike
+
+
+class CalibrationSizeError(ValueError):
+    m: int           # calibration scores given
+    m_required: int  # minimum needed for this alpha and delta
+
+
+@dataclass(frozen=True)
+class Threshold:
+    tau: float
+    rank: int                   # 1-based position of tau in the sorted calib scores
+    m: int                      # number of calib scores
+    alpha: float                # FPR target
+    delta: float                # 1 - confidence
+    achieved_confidence: float  # >= 1 - delta
+
+
+@dataclass(frozen=True)
+class OperatingPoint:
+    fpr: float
+    fpr_ci: tuple[float, float]
+    recall: float
+    recall_ci: tuple[float, float]
+    n_normal: int
+    n_defect: int
+    fp: int
+    tp: int
+
+
+def fit_threshold(calib_scores: ArrayLike, alpha: float, delta: float = 0.05) -> Threshold: ...
+
+def operating_point(
+    scores: ArrayLike, labels: ArrayLike, tau: float, ci_level: float = 0.95
+) -> OperatingPoint: ...
+
+def min_calibration_size(alpha: float, delta: float = 0.05) -> int: ...
+
+def min_alpha(m: int, delta: float = 0.05) -> float: ...
+
+def save_threshold(threshold: Threshold, run_dir: str | Path) -> Path: ...
+
+def load_threshold(run_dir: str | Path, alpha: float, delta: float = 0.05) -> Threshold: ...
+```
+
+Modules: `fit_threshold`, `Threshold`, `CalibrationSizeError`, `save_threshold` and `load_threshold` live in `argus.calibration.tolerance`; `min_calibration_size` and `min_alpha` in `argus.calibration.sample_size`; `operating_point` and `OperatingPoint` in `argus.evaluation.operating_point`.
+
+#### Decision rule
+
+An image is flagged as a defect if and only if `score > tau`. The comparison is strict, everywhere: in `operating_point`, the backend's verdict and the review zone.
+
+#### `fit_threshold(calib_scores, alpha, delta=0.05)`
+
+Distribution-free order-statistic rule (Wilks), as in Deng:
+
+1. Sort the `m` calibration scores in ascending order, `s(1) ≤ … ≤ s(m)`.
+2. The rank `k` is the smallest `k` with `P(Binomial(m, 1 − alpha) ≤ k − 1) ≥ 1 − delta`.
+3. `tau = s(k)`, and `achieved_confidence = P(Binomial(m, 1 − alpha) ≤ k − 1)`.
+
+The guarantee: if the calibration images and new good images are independent draws from the same conditions, then with probability at least `1 − delta`, the true FPR of `score > tau` is at most `alpha`.
+
+- `calib_scores` is 1-D and every value is finite. Otherwise it raises `ValueError`.
+- `alpha` and `delta` are each strictly between 0 and 1. Otherwise it raises `ValueError`.
+- If `m < min_calibration_size(alpha, delta)`, no rank works, and it raises `CalibrationSizeError` with `m`, `m_required` and a message such as `need at least 59 calibration scores for alpha=0.05, delta=0.05; got 40`. P2.2 catches this to skip and warn.
+- Ties need no special handling; the strict rule keeps the guarantee.
+
+#### Minimum sizes (P1.2)
+
+- `min_calibration_size(alpha, delta)` = `ceil(log(delta) / log(1 − alpha))`: the smallest `m` for which rank `k = m` reaches `1 − delta`.
+- `min_alpha(m, delta)` = `1 − delta ** (1 / m)`: the smallest target `m` scores can support.
+
+#### `operating_point(scores, labels, tau, ci_level=0.95)`
+
+- `scores` and `labels` are 1-D and of equal length, `labels` holds only `0` and `1`, and every score is finite. Otherwise it raises `ValueError`.
+- `n_normal` and `n_defect` are the counts of labels 0 and 1. `fp` counts label-0 rows with `score > tau`, and `tp` counts label-1 rows with `score > tau`.
+- `fpr = fp / n_normal` and `recall = tp / n_defect`.
+- `fpr_ci` and `recall_ci` are Wilson score intervals at `ci_level`, using `z` = the standard normal quantile at `1 − (1 − ci_level) / 2` (1.959964 for 95%). For a count `x` out of `n`, with `p = x / n`:
+  - centre = `(p + z² / 2n) / (1 + z² / n)`
+  - half-width = `z / (1 + z² / n) × sqrt(p(1 − p) / n + z² / 4n²)`
+- If `n_normal = 0`, `fpr` and both ends of `fpr_ci` are NaN; likewise for recall when `n_defect = 0`. If both are 0, it raises `ValueError`.
+- Which rows to pass is the caller's job, following C1's "How each role is used" table: for FPR, every `label = 0` row in `eval_normal` and `test`; for recall, every `label = 1` row in `test`. Passing them together in one call gives both.
+
+#### Threshold files
+
+- `save_threshold(t, run_dir)` writes `run_dir/thresholds/alpha{alpha}_delta{delta}.json` and returns its path.
+  - `run_dir` is a clean C2 run folder.
+  - Numbers in the name use Python's `:g` format, for example `alpha0.05_delta0.05.json` or `alpha0.1_delta0.05.json`.
+  - It writes one file per `(alpha, delta)`, so the 10%, 5% and 2% targets of a run sit side by side.
+- `load_threshold(run_dir, alpha, delta)` reads one back. It raises `FileNotFoundError` if the file is missing, and `ValueError` if the file is stale.
+  - A file is stale when its `scores_sha256` no longer matches `scores.parquet`, or its `config_hash` no longer matches `run.json`.
+- When A2.6 rewrites a run's scores, it deletes that run's `thresholds/` folder.
+- The backend (P3.2) finds a bank's τ through its path: the bank at `banks/{dataset}/{category}/{setting}/seed{n}` uses `scores/{dataset}/{category}/{setting}/seed{n}/thresholds/`.
+
+File contents: every `Threshold` field, plus `schema_version` (`1`), the run's `config_hash`, and `scores_sha256` (the SHA-256 of `scores.parquet` when τ was fitted). Example:
+
+`artifacts/scores/mvtec_ad/hazelnut/m10/seed20260801/thresholds/alpha0.05_delta0.05.json`
+
+```json
+{
+  "schema_version": 1,
+  "tau": 2.231,
+  "rank": 99,
+  "m": 100,
+  "alpha": 0.05,
+  "delta": 0.05,
+  "achieved_confidence": 0.962919,
+  "config_hash": "3f9a1c07b2e4",
+  "scores_sha256": "9c4e0f2a7d1b3e5f8a6c4d2b0e9f7a5c3d1b8e6f4a2c0d9e7b5a3f1c8e6d4b2a"
+}
+```
+
+`tau`, `config_hash` and `scores_sha256` here are illustrative; `rank`, `m` and `achieved_confidence` are the real values for m = 100 at a 5% target.
+
+#### Test-set lock
+
+Code that reads `eval_normal` or `test` scores for a run first calls `load_threshold` for that run and target, and stops if it fails. `fit_threshold` only ever receives `calib` rows. This makes the plan's fair-test rule automatic: no τ can be fitted, or refitted, after looking at evaluation scores.
+
+#### Reference values
+
+P1.1 and P1.2's tests check these (from Deng; recomputed for this spec):
+
+| Case | Expected |
+|---|---|
+| `fit_threshold`, m = 150, alpha = 0.10 | rank 142, achieved_confidence 0.9693 |
+| `fit_threshold`, m = 150, alpha = 0.05 | rank 148, achieved_confidence 0.9818 |
+| `fit_threshold`, m = 150, alpha = 0.02 | rank 150, achieved_confidence 0.9517 |
+| `min_calibration_size`, alpha = 0.10 / 0.05 / 0.02 / 0.01 / 0.005 / 0.001 | 29 / 59 / 149 / 299 / 598 / 2995 |
+| `min_alpha`, m = 150 | 0.01977 |
+| `fit_threshold`, m = 40, alpha = 0.05 | `CalibrationSizeError`, `m_required = 59` |
+
+All with delta = 0.05.
+
+#### Example
+
+```python
+import pandas as pd
+
+from argus.calibration.tolerance import fit_threshold, load_threshold, save_threshold
+from argus.evaluation.operating_point import operating_point
+
+run = "artifacts/scores/mvtec_ad/hazelnut/m10/seed20260801"
+df = pd.read_parquet(f"{run}/scores.parquet")
+
+t = fit_threshold(df.loc[df.role == "calib", "score"], alpha=0.05)
+save_threshold(t, run)
+
+t = load_threshold(run, alpha=0.05)  # test-set lock: only now read evaluation rows
+ev = df[df.role.isin(["eval_normal", "test"])]
+op = operating_point(ev.score, ev.label, t.tau)
+print(f"FPR {op.fpr:.3f} {op.fpr_ci}, recall {op.recall:.3f} {op.recall_ci}")
+```
+
+The evaluation rows here are every `eval_normal` and `test` row. Because `operating_point` splits by label, that gives FPR over all held-out good images and recall over the test defects, as C1 specifies.
